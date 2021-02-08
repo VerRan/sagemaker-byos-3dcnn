@@ -1,5 +1,7 @@
 # 如何将开源项目迁移到SageMaker
 
+在开始介绍将代码迁移到Sagemaker之前，首先简要介绍一下为什么要迁移代码到Sagemaker，大家都知道机器学习项目是需要大量的计算资源的，这里主要是因为机器学习一般都需要大量的数据通过复杂的计算来拟合一个表达来实现对新数据的预测能力，数据量，模型的复杂度都会影响模型的训练时间和模型效果，从模型训练时间角度来看，如果能够有大量的弹性扩展的资源来帮助模型训练，这样可以大大的缩减运维和资金成本，Sagemaker是Amazon提供的一个端到端的机器学习平台包括模数据预处理，模型训练，模型调试，模型理解，模型部署，模型监控，机器学习工作流自动化等能力的平台，本示例会重点介绍如何利用Sagemaker实现使用云上资源进数据预处理，模型训练。
+ 
 ## 背景
 每当我们计划使用机器学习解决一个业务问题时，一般会采取如下的方案：
 1. 当前业务问题，是否通过Saas的机器学习服务可以解决，比如图片的分类，可以考虑使用云服务提供商的SAAS服务，如AWS的Rekognition，通过API调用的方式可以快速实现自己的业务需求
@@ -9,36 +11,19 @@
 
 本文将从已下步骤进行介绍：
 1. 业务理解并搜索需要的开源项目
-2. Sagemaker notebook中运行代码
-3. 编写迁移到Sagemaker的notebook代码
-4. 预处理优化
+2. 本地运行代码（使用Sagemaker notebook）
+3. 使用BYOS迁移代码到Sagemaker
+4. 使用BYOC优化预处理
 
 ## 业务理解并搜索需要的开源项目
-本文已通过3DCNN解决视频分类的问题来举例，比如当前您当前有一批视频需要基于视频的内容进行分类，需要将视频分为喜剧，动物，通过github搜索到一个3dcnn的网络，下来我们介绍如何具体进行迁移。
+本文已通过3DCNN解决视频分类的问题来举例，比如当前您当前有一批视频需要基于视频的内容进行分类，需要将视频分为喜剧，动物，通过github搜索到一个3dcnn的网络（本示例采用 https://github.com/kcct-fujimotolab/3DCNN 代码），下来我们介绍如何具体进行迁移。
 
-## Sagemaker notebook中运行代码
-1. 在迁移之前首先我们将github上的代码下载到Sagemaker 笔记本实例中[如何开始使用sagemaker 笔记本实例](https://aws.amazon.com/cn/getting-started/hands-on/build-train-deploy-machine-learning-model-sagemaker/)
-2. 通过Sagemaker 笔记本实例开始运行代码进行测试，双击打开sagemaker-3dcnn.ipynb文件，选择 conda_tensorflow_p36 内核
+## 本地运行代码（使用Sagemaker notebook）
+   在迁移之前首先我们将github上的代码下载到Sagemaker 笔记本实例中[如何开始使用sagemaker 笔记本实例](https://aws.amazon.com/cn/getting-started/hands-on/build-train-deploy-machine-learning-model-sagemaker/)，然后通过sagemaker notebook对代码进行本地测试，当然也可以将代码下载到本机进行测试，通过Sagemaker notebook的优势在于可以快速的构建自己的开发环境，同时支持多种机型选择包括GPU机型，在后续的数据并行预处理以及模型的并行训练我们都会使用Sagemaker notebook来进行开发。
+   下面对该项目的代码从数据预处理，模型训练两个部分进行简要介绍，这样便于后面我们的迁移改造。
 
-### 引入依赖
-
-
-```python
-import sagemaker
-from sagemaker.tensorflow import TensorFlow
-import os 
-from sagemaker import get_execution_role
-
-sagemaker_session = sagemaker.Session()
-
-role = get_execution_role()
-region = sagemaker_session.boto_session.region_name
-
-```
-
-### 数据预处理
-将视频数据转换成np，下面的代码介绍如何将视频数据转换为np用于输入到网络中用于模型训练
-
+### 数据预处理代码
+如下代码用于将视频数据转换成np，对应3DCNN代码库中的pre_process.py类，目的是将视频数据转换为np后用于输入到网络中用于模型训练。
 
 ```python
 from os import *
@@ -121,23 +106,48 @@ def process():
 process()
 ```
 
-如上代码会将视频数据（存储在dataset目录下的测试数据）通过opencv进行抽帧然后将其转换为numpy数组并最终将数据存储为.npz文件用于后续模型训练，预处理后的数据存储在default-output目录下
+通过在notebook中执行process方法，代码会将视频数据（存储在dataset目录下的测试数据）通过opencv进行抽帧然后将其转换为numpy数组并最终将数据存储为.npz文件用于后续模型训练，预处理后的数据存储在default-output目录下。
 
 当前我们已经准备好数据，为了确保下载的开源项目可以正常运行，先通过在notebook中进行本地测试的方式来验证。
 
-
+### 本地训练模型
+sagemaker-3dcnn.py 对应3DCNN代码库中的3dcnn.py，为了后续迁移到Sagemaker部分参数做了修改，后续会详细介绍。
 ```python
 ! python3 sagemaker-3dcnn.py --batch 3 --data_dir np-datasets --epoch 3 --output default-output  --nclass 8
 ```
+通过执行如上代码，可以测试原有开源项目的网络是否可以正常运行并达到预期，在实际项目中会根据我们的需求进行优化，包括数据预处理，网络结构，超参数等，通过数据预处理阶段比如抽帧的间隔来提高样本的数量来提高模型效果，通过调整网络结构，超参数等来优化模型效果，此部分的优化会根据不同的数据情况和实际训练效果会采用不通的方式，此部分仅用于测试暂且不详细说明。
 
-当前使用测试数据可以跑通网络，由于数据仅仅用于测试这里针对模型的效果暂时不做处理。
-
- ## 编写迁移到Sagemaker的notebook代码
- 下来我们将介绍如何将如上运行通过的代码迁移到Sagemaker，针对迁移到Sagemaker有如下两种方案：
+## 迁移到Sagemaker的方案
+下来我们将介绍如何将如上3DCNN代码迁移到Sagemaker，针对迁移到Sagemaker有如下两种方案：
  1. BYOS（Bring Your Own Script），也就是说直接使用现有的网络代码并迁移到sagemaker。
  2. BYOC（Bring Your Own Container），也就是说将现有代码构建程自定义Docker镜像的方式迁移到Sagemaker
- 一般情况下建议使用BYOS的方案，当BYOS方案无法满足需求时比如需要使用您当前的环境代码和依赖直接迁移到Sagemaker该方案相较于BYOS需要自己构建镜像。
- 本文将介绍如何使用BYOS进行迁移。
+ 
+一般情况下建议使用BYOS的方案，当BYOS方案无法满足需求时比如需要使用您当前的环境代码和依赖直接迁移到Sagemaker该方案相较于BYOS需要自己构建镜像。
+ 
+## 使用BYOS迁移代码到Sagemaker
+ 
+  下来将介绍如何使用BYOS进行迁移代码，使用BYOS的方法和BYOC的不同之处在于：BYOC是使用用户自己创建的镜像来运行程序，更适用于用户对镜像自定义程度较高的使用情景；而BYOS是使用预先构建好的镜像，只是传入用户自己的代码来运行程序，不需要用户自己调试镜像，更适用于比较简单的使用情景。
+  由于不需要编译自定义镜像，我们可以直接进行本地测试和Amazon SageMaker测试，完整流程见 sagemaker-3dcnn.ipynb。
+  具体包含如下步骤：
+  1. 引入依赖：需要引入Sagemaekr相关依赖
+  2. 数据准备：Sagemaker模型训练会建议将数据存储到S3对象存储中，这里通过Saegmaker api可以快速将本地数据上传到S3。
+  3. 超参数设置：在Sagemaker中代码的参数通过超参数设置来实现
+  4. 模型代码修改：Sagemaker需要传递包括输入数据存储位置，模型的存储位置等，这里只需要修改模型的入口参数即可，针对模型本身的网络部分代码是没有侵入的。
+  5. 使用Sagemaker进行模型训练：Sagemaker 提供了Estimator评估器来实现不同机器学习框架的封装从而简化对应框架的集成，比如通过TensorFlow Estimator实现了Tensorflow的封装，比如针对上文使用的3dcnn项目只需要将修改参数的3dcnn.py作为参数传递给TensorFlowEstimator就可以自动实现使用Sagmaker来实现模型的训练，同时使用到Sagemaker强大的资源调度和管理的能力包括多种机型的支持，以及CPU，GPU训练，并行训练等。通过并行训练可以有效的提升训练速度，下文数据预处理章节就采用了并行方式。
+  
+### 引入依赖
+
+```python
+import sagemaker
+from sagemaker.tensorflow import TensorFlow
+import os 
+from sagemaker import get_execution_role
+
+sagemaker_session = sagemaker.Session()
+
+role = get_execution_role()
+region = sagemaker_session.boto_session.region_name
+```
 
 ### 数据准备
 当使用Sagemaker进行数据预处理或者模型训练时，建议将数据上传到S3，这样便于针对大数据量场景下的数据预处理和模型训练，下面我们将预处理后的数据上传到S3。
@@ -168,7 +178,7 @@ hyperparameters = {'epoch': 3,
                   }
 ```
 
-### 代码修改
+### 模型代码修改
 由于Sagemaker会自动通过S3下载训练数据到模型训练的机器，然后使用下载的数据进行模型训练，同时也会自动将训练好的模型上传到S3中，因此我们需要对原有的代码进行调整，添加如下参数：
 1. model_dir：用于指定模型的S3存储路径，如果不设置的话默认会存储到Sagemaker studio默认创建的桶中
 2. data_dir： 用于指定模型训练的训练数据存储路径，路径对应fit方法的训练输入路径参数
@@ -201,7 +211,7 @@ estimator.fit({'training': inputs})
 
 当模型训练成功后，模型会存储到S3中，可以通过Sagemaker控制台找到此次训练的任务，在详情页面可以找到模型存储路径，样本数据存储路径，以及我们上面设置的超参数信息。
 
-## 预处理优化
+## 使用BYOC优化预处理
 
 上面我们在数据预处理章节采用notebook 实例对测试数据进行了预处理，如果样本数据比较少的话notebook实例可以用于测试，但是当样本数据的量级很大的时候无论是从存储能力还是处理能力notebook都是无法满足的呢。针对预处理阶段Sagemaker提供了Sagemaker Processing功能用于解决如上问题，下文将通过Sagemaker Processing 来介绍如何实现：
 1. 如何实现存储在S3中的大批量数据进行预处理
@@ -276,7 +286,7 @@ processor.run(inputs=[ProcessingInput(
 
 ## 总结
 本文通过一个开源项目的示例介绍了以下内容：
-1. 如何将自定义的网络或者第三方的网络迁移到Sagemaker进行运行
-2. 如何将预处理代码迁移到Sagemaker进行数据预处理
+1. 如何将自定义的网络或者第三方的网络迁移到Sagemaker（BYOS方式）
+2. 如何将预处理代码迁移到Sagemaker进行数据预处理（BYOC方式）
 
 源代码地址：https://github.com/VerRan/sagemaker-byos-3dcnn
