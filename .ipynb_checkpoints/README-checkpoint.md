@@ -12,8 +12,9 @@
 本文将从已下步骤进行介绍：
 1. 业务理解并搜索需要的开源项目
 2. 本地运行代码（使用Sagemaker notebook）
-3. 使用BYOS迁移代码到Sagemaker
-4. 使用BYOC优化预处理
+3. 迁移到Sagemaker的方案
+3. 迁移模型到Sagemaker
+4. 迁移预处理到Sagemaker
 
 ## 业务理解并搜索需要的开源项目
 本文已通过3DCNN解决视频分类的问题来举例，比如当前您当前有一批视频需要基于视频的内容进行分类，需要将视频分为喜剧，动物，通过github搜索到一个3dcnn的网络（本示例采用 https://github.com/kcct-fujimotolab/3DCNN 代码），下来我们介绍如何具体进行迁移。
@@ -124,7 +125,7 @@ sagemaker-3dcnn.py 对应3DCNN代码库中的3dcnn.py，为了后续迁移到Sag
  
 一般情况下建议使用BYOS的方案，当BYOS方案无法满足需求时比如需要使用您当前的环境代码和依赖直接迁移到Sagemaker该方案相较于BYOS需要自己构建镜像。
  
-## 使用BYOS迁移代码到Sagemaker
+## 迁移模型到Sagemaker（BYOS）
  
   下来将介绍如何使用BYOS进行迁移代码，使用BYOS的方法和BYOC的不同之处在于：BYOC是使用用户自己创建的镜像来运行程序，更适用于用户对镜像自定义程度较高的使用情景；而BYOS是使用预先构建好的镜像，只是传入用户自己的代码来运行程序，不需要用户自己调试镜像，更适用于比较简单的使用情景。
   由于不需要编译自定义镜像，我们可以直接进行本地测试和Amazon SageMaker测试，完整流程见 sagemaker-3dcnn.ipynb。
@@ -211,7 +212,7 @@ estimator.fit({'training': inputs})
 
 当模型训练成功后，模型会存储到S3中，可以通过Sagemaker控制台找到此次训练的任务，在详情页面可以找到模型存储路径，样本数据存储路径，以及我们上面设置的超参数信息。
 
-## 使用BYOC优化预处理
+## 迁移预处理到Sagemaker并优化（BYOC）
 
 上面我们在数据预处理章节采用notebook 实例对测试数据进行了预处理，如果样本数据比较少的话notebook实例可以用于测试，但是当样本数据的量级很大的时候无论是从存储能力还是处理能力notebook都是无法满足的呢。针对预处理阶段Sagemaker提供了Sagemaker Processing功能用于解决如上问题，下文将通过Sagemaker Processing 来介绍如何实现：
 1. 如何实现存储在S3中的大批量数据进行预处理
